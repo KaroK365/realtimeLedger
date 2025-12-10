@@ -1,0 +1,8 @@
+CREATE TABLE accounts (
+  id BIGSERIAL PRIMARY KEY,
+  account_id UUID NOT NULL UNIQUE,
+  user_id UUID NOT NULL,
+  balance BIGINT NOT NULL DEFAULT 0,
+  currency VARCHAR(3) NOT NULL DEFAULT 'INR',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
