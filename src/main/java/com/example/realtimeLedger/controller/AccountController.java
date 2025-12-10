@@ -15,7 +15,7 @@ import java.util.UUID;
 public class AccountController {
 
     private final AccountService accountService;
-
+    //post
     @PostMapping
     public AccountResponse createAccount(@RequestBody @Valid CreateAccountRequest request) {
         return accountService.createAccount(request);
