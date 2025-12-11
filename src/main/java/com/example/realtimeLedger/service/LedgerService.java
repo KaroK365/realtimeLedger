@@ -22,9 +22,14 @@ public class LedgerService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
+
     @Qualifier("redisTemplate")
     private final RedisTemplate<String, String> redis;
 
+
+    // ============================================================
+    //  TRANSFER (DOUBLE ENTRY + IDEMPOTENCY)
+    // ============================================================
     @Transactional
     public UUID transfer(TransferRequest request, String idempotencyKey) {
 
@@ -34,9 +39,8 @@ public class LedgerService {
             return UUID.fromString(existingTx);
         }
 
-        // 2️⃣ Create initial transaction (PENDING)
+        // 2️⃣ Prepare transaction record
         UUID txId = UUID.randomUUID();
-
         Transaction tx = Transaction.builder()
                 .transactionId(txId)
                 .fromAccount(UUID.fromString(request.getFromAccount()))
@@ -49,7 +53,7 @@ public class LedgerService {
 
         transactionRepository.save(tx);
 
-        // 3️⃣ Lock accounts and validate
+        // 3️⃣ Validate sender & receiver
         Account from = accountRepository.findByAccountId(UUID.fromString(request.getFromAccount()))
                 .orElseThrow(() -> new RuntimeException("Sender account not found"));
 
@@ -62,7 +66,7 @@ public class LedgerService {
             throw new RuntimeException("Insufficient balance");
         }
 
-        // 4️⃣ Apply ledger entries (double entry)
+        // 4️⃣ Create Ledger entries
         ledgerEntryRepository.save(
                 LedgerEntry.builder()
                         .entryId(UUID.randomUUID())
@@ -81,19 +85,61 @@ public class LedgerService {
                         .build()
         );
 
-        // 5️⃣ Update balances
+        // 5️⃣ Update Balances
         from.setBalance(from.getBalance() - request.getAmount());
         to.setBalance(to.getBalance() + request.getAmount());
 
         accountRepository.save(from);
         accountRepository.save(to);
 
-        // 6️⃣ Update transaction status
+        // 6️⃣ Mark transaction as SUCCESS
         tx.setStatus("SUCCESS");
         transactionRepository.save(tx);
 
-        // 7️⃣ Store idempotency result (24h)
+        // 7️⃣ Save idempotency key
         redis.opsForValue().set("idemp:" + idempotencyKey, txId.toString());
+
+        return txId;
+    }
+
+
+    // ============================================================
+    //  DEPOSIT (SINGLE ENTRY + BALANCE UPDATE)
+    // ============================================================
+    @Transactional
+    public UUID deposit(UUID accountId, long amount) {
+
+        Account acc = accountRepository.findByAccountId(accountId)
+                .orElseThrow(() -> new RuntimeException("Account not found"));
+
+        UUID txId = UUID.randomUUID();
+
+        // Ledger entry for deposit
+        ledgerEntryRepository.save(
+                LedgerEntry.builder()
+                        .entryId(UUID.randomUUID())
+                        .transactionId(txId)
+                        .accountId(accountId)
+                        .delta(amount)
+                        .build()
+        );
+
+        // Update balance
+        acc.setBalance(acc.getBalance() + amount);
+        accountRepository.save(acc);
+
+        // Transaction record
+        Transaction tx = Transaction.builder()
+                .transactionId(txId)
+                .fromAccount(accountId)   // TEMPORARY: schema constraint
+                .toAccount(accountId)
+                .amount(amount)
+                .currency("INR")
+                .status("SUCCESS")
+                .idempotencyKey(null)
+                .build();
+
+        transactionRepository.save(tx);
 
         return txId;
     }
