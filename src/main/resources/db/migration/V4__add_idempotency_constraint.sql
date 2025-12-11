@@ -1,0 +1,1 @@
+ALTER TABLE transactions ADD CONSTRAINT unique_idempotency_key UNIQUE (idempotency_key);

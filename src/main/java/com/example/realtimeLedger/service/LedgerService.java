@@ -60,6 +60,14 @@ public class LedgerService {
         Account to = accountRepository.findByAccountId(UUID.fromString(request.getToAccount()))
                 .orElseThrow(() -> new RuntimeException("Receiver account not found"));
 
+        if (request.getFromAccount().equals(request.getToAccount())) {
+            throw new IllegalArgumentException("Cannot transfer to same account");
+        }
+
+        if (request.getAmount() <= 0) {
+            throw new IllegalArgumentException("Amount must be positive");
+        }
+
         if (from.getBalance() < request.getAmount()) {
             tx.setStatus("FAILED");
             transactionRepository.save(tx);
@@ -107,14 +115,26 @@ public class LedgerService {
     //  DEPOSIT (SINGLE ENTRY + BALANCE UPDATE)
     // ============================================================
     @Transactional
-    public UUID deposit(UUID accountId, long amount) {
+    public UUID deposit(UUID accountId, long amount, String idempotencyKey) {
+
+        // 🔒 1. Idempotency check
+        String existingTx = redis.opsForValue().get("idemp:" + idempotencyKey);
+        if (existingTx != null) {
+            return UUID.fromString(existingTx);
+        }
+
+        // 🔎 2. Validate amount
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Deposit amount must be positive");
+        }
 
         Account acc = accountRepository.findByAccountId(accountId)
                 .orElseThrow(() -> new RuntimeException("Account not found"));
 
+        // 🆔 3. Create transaction
         UUID txId = UUID.randomUUID();
 
-        // Ledger entry for deposit
+        // 🧾 4. Ledger entry
         ledgerEntryRepository.save(
                 LedgerEntry.builder()
                         .entryId(UUID.randomUUID())
@@ -124,23 +144,23 @@ public class LedgerService {
                         .build()
         );
 
-        // Update balance
+        // 💰 5. Update balance
         acc.setBalance(acc.getBalance() + amount);
         accountRepository.save(acc);
 
-        // Transaction record
+        // 📝 6. Save Transaction record
         Transaction tx = Transaction.builder()
                 .transactionId(txId)
-                .fromAccount(accountId)   // TEMPORARY: schema constraint
+                .fromAccount(accountId)  // TEMP: schema requires non-null
                 .toAccount(accountId)
                 .amount(amount)
                 .currency("INR")
                 .status("SUCCESS")
-                .idempotencyKey(null)
+                .idempotencyKey(idempotencyKey)
                 .build();
-
         transactionRepository.save(tx);
-
+        // 💾 7. Save idempotency
+        redis.opsForValue().set("idemp:" + idempotencyKey, txId.toString());
         return txId;
     }
 }

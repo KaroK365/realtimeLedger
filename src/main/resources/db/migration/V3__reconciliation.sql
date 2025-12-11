@@ -12,3 +12,4 @@ CREATE TABLE anomalies (
   detected_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
   description TEXT
 );
+
