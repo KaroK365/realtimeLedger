@@ -1,5 +1,5 @@
 
-## # Real-Time Ledger & Reconciliation Engine (Fintech System)
+## Real-Time Ledger & Reconciliation Engine (Fintech System)
 
 A high-accuracy, double-entry fintech ledger engine built with **Java 17**, **Spring Boot 3**, **PostgreSQL**, **Redis**, and **Flyway**.
 Implements core financial primitives used in **banks, wallets, UPI, BNPL, and trading platforms**.
